@@ -9,7 +9,7 @@ import time
 arm = xarm.Controller('USB')
 
 # ათვლა იწყება პირველი ელემენტიდან ანუ [40, 0, 0, 0, 0, 0] მიანიჭებს id=1 ს 40 გრადუსს
-reset = [40, 0, 0, 0, 0, 0]
+reset = [0, 0, 0, 0, 0, 0]
 add = 0
 reset = [x+add for x in reset]
 print(reset)
