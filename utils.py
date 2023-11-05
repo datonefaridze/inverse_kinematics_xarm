@@ -1,160 +1,90 @@
-import numpy as np
 
-from visual_kinematics.Robot import *
-from visual_kinematics.utility import simplify_angles
-import logging
+import tensorflow as tf
+from tf_agents.trajectories import time_step as ts
 
+def resize(image):
+  image = tf.image.resize_with_pad(image, target_width=320, target_height=256)
+  image = tf.cast(image, tf.uint8)
+  return image
 
-class RobotSerial(Robot):
-    # ==================
-    # dh_params [n, 4]
-    # |  d  |  a  |  alpha  |  theta  |
-    # |  x  |  x  |    x    |    x    |
-    # |  x  |  x  |    x    |    x    |
-    # | ... | ... |   ...   |   ...   |
-    # params [n, 3] (without theta)       initial_offset [n, ]
-    # |  d  |  a  |  alpha  |                  |  theta  |
-    # |  x  |  x  |    x    |                  |    x    |
-    # |  x  |  x  |    x    |                  |    x    |
-    # | ... | ... |   ...   |                  |   ...   |
-    # ==================
-    def __init__(self, dh_params, dh_type="normal", analytical_inv=None
-                 , plot_xlim=[-0.5, 0.5], plot_ylim=[-0.5, 0.5], plot_zlim=[0.0, 1.0]
-                 , ws_lim=None, ws_division=5
-                 , inv_m="jac_pinv", step_size=5e-1, max_iter=300, final_loss=1e-4):
-        Robot.__init__(self, dh_params[:, 0:3], dh_params[:, 3], plot_xlim, plot_ylim, plot_zlim, ws_lim, ws_division)
-        self.dh_type = dh_type # can be only normal or modified
-        if dh_type != "normal" and dh_type != "modified":
-            raise Exception("dh_type can only be \"normal\" or \"modified\"")
-        self.analytical_inv = analytical_inv
-        # inverse settings
-        self.inv_m = inv_m
-        if inv_m != "jac_t" and inv_m != "jac_pinv":
-            raise Exception("Motion type can only be \"jac_t\" or \"jac_inv\"!")
-        self.step_size = step_size
-        self.max_iter = max_iter
-        self.final_loss = final_loss
+def terminate_bool_to_act(terminate_episode: tf.Tensor) -> tf.Tensor:
+  return tf.cond(
+      terminate_episode == tf.constant(1.0),
+      lambda: tf.constant([1, 0, 0], dtype=tf.int32),
+      lambda: tf.constant([0, 1, 0], dtype=tf.int32),
+  )
 
-    @property
-    def dh_params(self):
-        return np.hstack((self.params, (self.axis_values + self.initial_offset).reshape([self.num_axis, 1])))
+def rescale_action_with_bound(
+    actions: tf.Tensor,
+    low: float,
+    high: float,
+    safety_margin: float = 0,
+    post_scaling_max: float = 1.0,
+    post_scaling_min: float = -1.0,
+) -> tf.Tensor:
+  """Formula taken from https://stats.stackexchange.com/questions/281162/scale-a-number-between-a-range."""
+  resc_actions = (actions - low) / (high - low) * (
+      post_scaling_max - post_scaling_min
+  ) + post_scaling_min
+  return tf.clip_by_value(
+      resc_actions,
+      post_scaling_min + safety_margin,
+      post_scaling_max - safety_margin,
+  )
 
-    # transformation between axes
-    @property
-    def ts(self):
-        dh = self.dh_params
-        ts = []
-        for i in range(self.num_axis):
-            if self.dh_type == "normal":
-                ts.append(Frame.from_dh(dh[i]))
-            else:
-                ts.append(Frame.from_dh_modified(dh[i]))
-        return ts
+def rescale_action(action):
+  """Rescales action."""
 
-    # base to end transformation
-    @property
-    def axis_frames(self):
-        ts = self.ts
-        fs = []
-        f = Frame.i_4_4()
-        for i in range(self.num_axis):
-            f = f * ts[i]
-            fs.append(f)
-        return fs
+  action['world_vector'] = rescale_action_with_bound(
+      action['world_vector'],
+      low=-0.05,
+      high=0.05,
+      safety_margin=0.01,
+      post_scaling_max=1.75,
+      post_scaling_min=-1.75,
+  )
+  action['rotation_delta'] = rescale_action_with_bound(
+      action['rotation_delta'],
+      low=-0.25,
+      high=0.25,
+      safety_margin=0.01,
+      post_scaling_max=1.4,
+      post_scaling_min=-1.4,
+  )
 
-    @property
-    def end_frame(self):
-        return self.axis_frames[-1]
+  return action
 
-    @property
-    def jacobian(self):
-        axis_fs = self.axis_frames
-        jac = np.zeros([6, self.num_axis])
-        if self.dh_type == "normal":
-            jac[0:3, 0] = np.cross(np.array([0., 0., 1.]), axis_fs[-1].t_3_1.reshape([3, ]))
-            jac[3:6, 0] = np.array([0., 0., 1.])
-            for i in range(1, self.num_axis):
-                jac[0:3, i] = np.cross(axis_fs[i-1].z_3_1.reshape([3, ]), (axis_fs[-1].t_3_1 - axis_fs[i-1].t_3_1).reshape([3, ]))
-                jac[3:6, i] = axis_fs[i-1].z_3_1.reshape([3, ])
-        if self.dh_type == "modified":
-            for i in range(0, self.num_axis):
-                jac[0:3, i] = np.cross(axis_fs[i].z_3_1.reshape([3, ]), (axis_fs[-1].t_3_1 - axis_fs[i].t_3_1).reshape([3, ]))
-                jac[3:6, i] = axis_fs[i].z_3_1.reshape([3, ])
-        return jac
+def to_model_action(from_step):
+  """Convert dataset action to model action. This function is specific for the Bridge dataset."""
 
-    def inverse(self, end_frame):
-        if self.analytical_inv is not None:
-            return self.inverse_analytical(end_frame, self.analytical_inv)
-        else:
-            return self.inverse_numerical(end_frame)
+  model_action = {}
 
-    def inverse_analytical(self, end_frame, method):
-        self.is_reachable_inverse, theta_x = method(self.dh_params, end_frame)
-        self.forward(theta_x)
-        return theta_x
+  model_action['world_vector'] = from_step['action']['world_vector']
+  model_action['terminate_episode'] = terminate_bool_to_act(
+      from_step['action']['terminate_episode']
+  )
 
-    def inverse_numerical(self, end_frame):
-        last_dx = np.zeros([6, 1])
-        for _ in range(self.max_iter):
-            if self.inv_m == "jac_t":
-                jac = self.jacobian.T
-            else:
-                jac = np.linalg.pinv(self.jacobian)
-            end = self.end_frame
-            dx = np.zeros([6, 1])
-            dx[0:3, 0] = (end_frame.t_3_1 - end.t_3_1).reshape([3, ])
-            diff = end.inv * end_frame
-            dx[3:6, 0] = end.r_3_3.dot(diff.r_3.reshape([3, 1])).reshape([3, ])
-            if np.linalg.norm(dx, ord=2) < self.final_loss or np.linalg.norm(dx - last_dx, ord=2) < 0.1*self.final_loss:
-                self.axis_values = simplify_angles(self.axis_values)
-                self.is_reachable_inverse = True
-                return self.axis_values
-            dq = self.step_size * jac.dot(dx)
-            self.forward(self.axis_values + dq.reshape([self.num_axis, ]))
-            last_dx = dx
-        logging.error("Pose cannot be reached!")
-        self.is_reachable_inverse = False
+  model_action['rotation_delta'] = from_step['action']['rotation_delta']
 
-    def draw(self):
-        self.ax.clear()
-        self.plot_settings()
-        # plot the arm
-        x, y, z = [0.], [0.], [0.]
-        axis_frames = self.axis_frames
-        for i in range(self.num_axis):
-            x.append(axis_frames[i].t_3_1[0, 0])
-            y.append(axis_frames[i].t_3_1[1, 0])
-            z.append(axis_frames[i].t_3_1[2, 0])
-        self.ax.plot_wireframe(x, y, np.array([z]))
-        self.ax.scatter(x[1:], y[1:], z[1:], c="red", marker="o")
-        # plot axes using cylinders
-        cy_radius = np.amax(self.params[:, 0:2]) * 0.05
-        cy_len = cy_radius * 4.
-        cy_div = 4 + 1
-        theta = np.linspace(0, 2 * np.pi, cy_div)
-        cx = np.array([cy_radius * np.cos(theta)])
-        cz = np.array([-0.5 * cy_len, 0.5 * cy_len])
-        cx, cz = np.meshgrid(cx, cz)
-        cy = np.array([cy_radius * np.sin(theta)] * 2)
-        points = np.zeros([3, cy_div * 2])
-        points[0] = cx.flatten()
-        points[1] = cy.flatten()
-        points[2] = cz.flatten()
-        self.ax.plot_surface(points[0].reshape(2, cy_div), points[1].reshape(2, cy_div), points[2].reshape(2, cy_div),
-                             color="pink", rstride=1, cstride=1, linewidth=0, alpha=0.4)
-        for i in range(self.num_axis-1):
-            f = axis_frames[i]
-            points_f = f.r_3_3.dot(points) + f.t_3_1
-            self.ax.plot_surface(points_f[0].reshape(2, cy_div), points_f[1].reshape(2, cy_div), points_f[2].reshape(2, cy_div)
-                                 , color="pink", rstride=1, cstride=1, linewidth=0, alpha=0.4)
-        # plot the end frame
-        f = axis_frames[-1].t_4_4
-        self.ax.plot_wireframe(np.array([f[0, 3], f[0, 3] + 0.2 * f[0, 0]]),
-                               np.array([f[1, 3], f[1, 3] + 0.2 * f[1, 0]]),
-                               np.array([[f[2, 3], f[2, 3] + 0.2 * f[2, 0]]]), color="red")
-        self.ax.plot_wireframe(np.array([f[0, 3], f[0, 3] + 0.2 * f[0, 1]]),
-                               np.array([f[1, 3], f[1, 3] + 0.2 * f[1, 1]]),
-                               np.array([[f[2, 3], f[2, 3] + 0.2 * f[2, 1]]]), color="green")
-        self.ax.plot_wireframe(np.array([f[0, 3], f[0, 3] + 0.2 * f[0, 2]]),
-                               np.array([f[1, 3], f[1, 3] + 0.2 * f[1, 2]]),
-                               np.array([[f[2, 3], f[2, 3] + 0.2 * f[2, 2]]]), color="blue")
+  open_gripper = from_step['action']['open_gripper']
+
+  possible_values = tf.constant([True, False], dtype=tf.bool)
+  eq = tf.equal(possible_values, open_gripper)
+
+  assert_op = tf.Assert(tf.reduce_any(eq), [open_gripper])
+
+  with tf.control_dependencies([assert_op]):
+    model_action['gripper_closedness_action'] = tf.cond(
+        # for open_gripper in bridge dataset,
+        # 0 is fully closed and 1 is fully open
+        open_gripper,
+        # for Fractal data,
+        # gripper_closedness_action = -1 means opening the gripper and
+        # gripper_closedness_action = 1 means closing the gripper.
+        lambda: tf.constant([-1.0], dtype=tf.float32),
+        lambda: tf.constant([1.0], dtype=tf.float32),
+    )
+
+  model_action = rescale_action(model_action)
+
+  return model_action
