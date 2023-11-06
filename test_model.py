@@ -103,7 +103,7 @@ while True:
         print('time', time.time()-start)
         # arm.setPosition(desired_pos, duration=1000, wait=True)
         if np.argmax(action['terminate_episode'])==0:
-            arm.setPosition([[1, 0]], duration=1000, wait=True)
+            break
         
         cv2.imshow('frame',frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
