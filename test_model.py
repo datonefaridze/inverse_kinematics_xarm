@@ -41,7 +41,7 @@ print("initial_position: ", current_position)
 
 _embed = hub.load("https://tfhub.dev/google/universal-sentence-encoder-large/5")
 
-text = "Lift pack of matches in front of you"
+text = "Lift the object in front of you"
 # "Take a object next to you and place it in the black box next to you" 
 language_embedding = _embed([text])[0].numpy()
 saved_model_path = 'robotics_open_x_embodiment_and_rt_x_oss_rt_1_x_tf_trained_for_002272480_step/rt_1_x_tf_trained_for_002272480_step'
@@ -62,7 +62,6 @@ class VideoCapture:
     t.daemon = True
     t.start()
 
-  # read frames as soon as they are available, keeping only most recent one
   def _reader(self):
     while True:
       ret, frame = self.cap.read()
@@ -95,13 +94,14 @@ while True:
         action = policy_step.action
         policy_state = policy_step.state
 
-        temp_pos = np.array(current_position) + action['world_vector']
-        desired_pos = calculate_angles(my_chain, temp_pos)
-        # idx=idx+1
+        # temp_pos = np.array(current_position) + action['world_vector']
+        desired_pos = calculate_angles(my_chain, action['world_vector'])
+        idx=idx+1
         # np.save(f'saved_data/frame_{idx}', frame)
         # np.save(f'saved_data/desired_pos_{idx}', temp_pos)
-        print('time', time.time()-start)
-        # arm.setPosition(desired_pos, duration=1000, wait=True)
+        # np.save(f'saved_data/desired_ori_{idx}', np.array(action['rotation_delta']))
+        # print('time', time.time()-start)
+        arm.setPosition(desired_pos, duration=3000, wait=True)
         if np.argmax(action['terminate_episode'])==0:
             break
         

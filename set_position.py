@@ -18,4 +18,4 @@ arm = xarm.Controller('USB')
 
 # arm.setPosition(reset_id, duration=2000, wait=True)
 
-arm.setPosition([[1, -90.]], duration=2000, wait=True)
+arm.setPosition([[1, -90.]], duration=1000, wait=True)

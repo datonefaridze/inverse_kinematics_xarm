@@ -1,6 +1,13 @@
 
 import tensorflow as tf
 from tf_agents.trajectories import time_step as ts
+import cv2, queue, threading, time
+import ikpy.chain
+import numpy as np
+import ikpy.utils.plot as plot_utils
+import time
+import math
+
 
 def resize(image):
   image = tf.image.resize_with_pad(image, target_width=320, target_height=256)
@@ -88,3 +95,86 @@ def to_model_action(from_step):
   model_action = rescale_action(model_action)
 
   return model_action
+
+
+# bufferless VideoCapture
+class VideoCapture:
+
+  def __init__(self, name):
+    self.cap = cv2.VideoCapture(name)
+    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 128)
+    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 128)
+
+    self.q = queue.Queue()
+    t = threading.Thread(target=self._reader)
+    t.daemon = True
+    t.start()
+
+  # read frames as soon as they are available, keeping only most recent one
+  def _reader(self):
+    while True:
+      ret, frame = self.cap.read()
+      if not ret:
+        break
+      if not self.q.empty():
+        try:
+          self.q.get_nowait()   # discard previous (unprocessed) frame
+        except queue.Empty:
+          pass
+      self.q.put(frame)
+
+  def read(self):
+    return self.q.get()
+
+
+
+class XarmIK:
+    def __init__(self, arm, chain_description):
+        self.my_chain = ikpy.chain.Chain.from_urdf_file(chain_description)
+        self.arm = arm
+        self.open = -90.0
+        self.close = 10.0
+        self.gripper_open()
+
+    def set_location(self, target_position):
+        target_angles = self.my_chain.inverse_kinematics(target_position)
+        # print("target_angles: ", target_angles)
+        target_angles_degrees = np.array([math.degrees(radian) for radian in target_angles])
+        target_angles_degrees =  np.flip(target_angles_degrees[1:-1])
+        desired_pos = [[x+3, float(target_angles_degrees[x])] for x in range(len(target_angles_degrees))]
+        self.arm.setPosition(desired_pos, duration=5000, wait=True)
+        return True
+        
+    def get_location(self):
+        ''''returns 3d positions of gripper in meters'''
+        
+        current_position = [float(math.radians(x)) for x in self.get_positions()][::-1]
+        current_position = [0.0] + current_position + [0.0]
+        coordinates_3d = self.my_chain.forward_kinematics(current_position)
+        return coordinates_3d[:3, 3]
+    
+    def get_positions(self):
+        """ Returns poisitions in degrees"""
+        positions = []
+        for i in range(2, 6):
+            position = self.arm.getPosition(i+1, True)
+            positions.append(position)
+        return positions
+    
+
+    def gripper_open_check(self):
+        position = self.arm.getPosition(1, True)
+        print("position: ", position)
+        if position <= -40:
+            return 1
+        else:
+            return -1
+
+    def gripper_close(self):
+        position = self.arm.setPosition([[1, self.close]], duration=3000, wait=True)
+        return True
+
+    def gripper_open(self):
+        position = self.arm.setPosition([[1, self.open]], duration=3000, wait=True)
+        return True
+    
