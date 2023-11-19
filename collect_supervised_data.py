@@ -16,7 +16,7 @@ os.makedirs(dataset_dir, exist_ok=True)
 
 arm = xarm.Controller('USB',)
 xarm_ik = XarmIK(arm, 'xarm.URDF')  
-cap = VideoCapture(0)
+cap = VideoCapture(3)
 
 control_frequency = 15 # Hz
 t0 = time.time()
@@ -47,7 +47,6 @@ while(True):
 
 print('==================')
 print('==================')
-print('==================')
 print('HZ: ', len(states)/(time.time()-start_time))
 
 yn = input('wanna save:?')
@@ -70,4 +69,5 @@ if yn == 'y':
     np.save(f'{dataset_dir}/frames_{filename}.npy', frames)
     np.save(f'{dataset_dir}/positions_{filename}.npy', positions)
 
-# cv2.destroyAllWindows()
+cap.stop()  # Stop the video capture thread
+cv2.destroyAllWindows()

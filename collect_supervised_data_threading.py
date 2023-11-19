@@ -33,28 +33,21 @@ def collect_data(cap, xarm_ik, data_queue, end_event):
 
     while not end_event.is_set():  # Check if moving process has ended
         frame = cap.read()
-        if ret:
-            location_3d = xarm_ik.get_location()
-            gripper_open = xarm_ik.gripper_open_check()
-            print("gripper_open: ", gripper_open)
-            location_3d = location_3d + [gripper_open]
+        location_3d = xarm_ik.get_location()
+        gripper_open = xarm_ik.gripper_open_check()
+        print("gripper_open: ", gripper_open)
+        location_3d = location_3d + [gripper_open]
+        data_queue.put((frame, location_3d))
+        next_time += 1/control_frequency
 
-            data_queue.put((frame, location_3d))
-
-            next_time += 1/control_frequency
-        else:
-            break
     # data_queue.put((frames, states))  # Send any remaining data
 
 def main():
-    # Setup remains the same
-
-    # Event for synchronization
     end_event = Event()
     datapoints = [[-0.1519, 0.0000, 0.0078], [-0.1182, -0.0001, 0.1917], [-0.0437, -0.1098, 0.1911]]
     arm = xarm.Controller('USB',)
     xarm_ik = XarmIK(arm, 'xarm.URDF')  
-    cap = cv2.VideoCapture(2)
+    cap = VideoCapture(3)
 
     # Create and start the processes
     data_queue = Queue()
