@@ -6,56 +6,10 @@ import ikpy.utils.plot as plot_utils
 import xarm
 import time
 import math
-from temp_test import Controller
-
+from utils import Controller, XarmIK, VideoCapture
+import cv2
 
 np.set_printoptions(precision=4, suppress=True, formatter={'float': '{:0.4f}'.format})
-
-class XarmIK:
-    def __init__(self, arm, chain_description):
-        self.my_chain = ikpy.chain.Chain.from_urdf_file(chain_description)
-        self.arm = arm
-        self.open = -90.0
-        self.close = 10.0
-        self.gripper_act(1)
-
-    def set_location(self, target_position, gripper_action=False):
-        if gripper_action:
-            self.gripper_act(gripper_action)
-        target_angles = self.my_chain.inverse_kinematics(target_position)
-        target_angles_degrees = np.array([math.degrees(radian) for radian in target_angles])
-        target_angles_degrees =  np.flip(target_angles_degrees[1:-1])
-        desired_pos = [[x+3, float(target_angles_degrees[x])] for x in range(len(target_angles_degrees))]
-        self.arm.setPosition(desired_pos, duration=1000, wait=True)
-        return True
-        
-    def get_location(self):
-        ''''returns 3d positions of gripper in meters'''
-        current_position = [float(math.radians(x)) for x in self.get_positions()][::-1]
-        current_position = [0.0] + current_position + [0.0]
-        coordinates_3d = self.my_chain.forward_kinematics(current_position)
-        return coordinates_3d[:3, 3]
-    
-    def get_positions(self):
-        """ Returns poisitions in degrees"""
-        positions = []
-        for i in range(2, 6):
-            position = self.arm.getPosition(i+1, True)
-            positions.append(position)
-        return positions
-
-    def gripper_open_check(self):
-        position = self.arm.getPosition(1, True)
-        if position <= -50:
-            return 1
-        else:
-            return -1
-    
-    def gripper_act(self, action):
-        if action == 1:
-            self.arm.setPosition([[1, self.open]], duration=500, wait=True)
-        else:
-            self.arm.setPosition([[1, self.close]], duration=500, wait=True)
 
 
 arm = xarm.Controller('USB',)
@@ -64,36 +18,35 @@ controller = Controller([-0.1519, 0.0000, 0.03])
 xarm_ik.set_location([-0.1182, -0.0001, 0.1917])
 print(xarm_ik.get_location())
 
+array = []
 
-while True:
-    print('===========')
-    print('===========')
-    print('===========')
-    print('current loc', xarm_ik.get_location())
-    vec, gr = controller.act(xarm_ik.get_location())
-    if not vec:
+# while True:
+#     cur_loc = xarm_ik.get_location()
+#     print('current loc', cur_loc)
+#     array.append(cur_loc)
+#     vec, gr = controller.act(xarm_ik.get_location())
+#     if not vec:
+#         break
+#     final = list(np.array(xarm_ik.get_location())+np.array(vec))
+#     xarm_ik.set_location(final, gr)
+
+
+# np.save('travelled_distance.npy', np.array(array))
+
+
+cap = VideoCapture(2)
+
+loaded_array = np.load('travelled_distance.npy')    
+for ar in loaded_array:
+    xarm_ik.set_location(ar)
+    frame = cap.read()
+    cv2.imshow('frame',frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
         break
-    print('step: ', vec)
-    final = list(np.array(xarm_ik.get_location())+np.array(vec))
-    print('final: ', final)
-    xarm_ik.set_location(final, gr)
+    time.sleep(3)
 
 
 
-# xarm_ik.set_location([-0.1519, 0.0000, 0.03])
-# xarm_ik.gripper_act(-1)
 
-
-# xarm_ik.set_location([-0.1182, -0.0001, 0.1917])
-# print(xarm_ik.get_location())
-
-# xarm_ik.set_location([-0.06, -0.17, 0.1911])
-# print(xarm_ik.get_location())
-
-
-# xarm_ik.set_location([-0.06, -0.17, 0.05])
-# print(xarm_ik.get_location())
-
-
-# -90.0 open
-# 10.0 close
+cap.stop()  # Stop the video capture thread
+cv2.destroyAllWindows()

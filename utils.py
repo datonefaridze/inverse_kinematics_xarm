@@ -105,7 +105,7 @@ class VideoCapture:
     self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 256)
     self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 256)
 
-    self.q = queue.Queue()
+    self.q = queue.Queue(maxsize=3)
     t = threading.Thread(target=self._reader)
     t.daemon = True
     t.start()
@@ -172,9 +172,9 @@ class XarmIK:
     
     def gripper_act(self, action):
         if action == 1:
-            self.arm.setPosition([[1, self.open]], duration=500, wait=True)
+            self.arm.setPosition([[1, self.open]], duration=1000, wait=True)
         else:
-            self.arm.setPosition([[1, self.close]], duration=500, wait=True)
+            self.arm.setPosition([[1, self.close]], duration=1000, wait=True)
     
 
 
@@ -201,6 +201,9 @@ class Controller:
         else:
             act = list((direction_v/np.linalg.norm(direction_v)) * self.step_size)
         dist_prev = np.linalg.norm(current_location-self.sequence[self.chasing_idx-1]) if self.chasing_idx > 0 else 1000
+        
+        # print('dist: ', dist)
+        # print('dist_prev: ', dist_prev) 
         if min(dist_prev, dist) <= 0.01:
             self.gripper_open = self.gripper[self.chasing_idx]
         return (act, self.gripper_open)
