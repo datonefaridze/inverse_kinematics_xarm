@@ -1,100 +1,10 @@
 
-import tensorflow as tf
-from tf_agents.trajectories import time_step as ts
 import cv2, queue, threading, time
 import ikpy.chain
 import numpy as np
 import ikpy.utils.plot as plot_utils
 import time
 import math
-
-
-def resize(image):
-  image = tf.image.resize_with_pad(image, target_width=320, target_height=256)
-  image = tf.cast(image, tf.uint8)
-  return image
-
-def terminate_bool_to_act(terminate_episode: tf.Tensor) -> tf.Tensor:
-  return tf.cond(
-      terminate_episode == tf.constant(1.0),
-      lambda: tf.constant([1, 0, 0], dtype=tf.int32),
-      lambda: tf.constant([0, 1, 0], dtype=tf.int32),
-  )
-
-def rescale_action_with_bound(
-    actions: tf.Tensor,
-    low: float,
-    high: float,
-    safety_margin: float = 0,
-    post_scaling_max: float = 1.0,
-    post_scaling_min: float = -1.0,
-) -> tf.Tensor:
-  """Formula taken from https://stats.stackexchange.com/questions/281162/scale-a-number-between-a-range."""
-  resc_actions = (actions - low) / (high - low) * (
-      post_scaling_max - post_scaling_min
-  ) + post_scaling_min
-  return tf.clip_by_value(
-      resc_actions,
-      post_scaling_min + safety_margin,
-      post_scaling_max - safety_margin,
-  )
-
-def rescale_action(action):
-  """Rescales action."""
-
-  action['world_vector'] = rescale_action_with_bound(
-      action['world_vector'],
-      low=-0.05,
-      high=0.05,
-      safety_margin=0.01,
-      post_scaling_max=1.75,
-      post_scaling_min=-1.75,
-  )
-  action['rotation_delta'] = rescale_action_with_bound(
-      action['rotation_delta'],
-      low=-0.25,
-      high=0.25,
-      safety_margin=0.01,
-      post_scaling_max=1.4,
-      post_scaling_min=-1.4,
-  )
-
-  return action
-
-def to_model_action(from_step):
-  """Convert dataset action to model action. This function is specific for the Bridge dataset."""
-
-  model_action = {}
-
-  model_action['world_vector'] = from_step['action']['world_vector']
-  model_action['terminate_episode'] = terminate_bool_to_act(
-      from_step['action']['terminate_episode']
-  )
-
-  model_action['rotation_delta'] = from_step['action']['rotation_delta']
-
-  open_gripper = from_step['action']['open_gripper']
-
-  possible_values = tf.constant([True, False], dtype=tf.bool)
-  eq = tf.equal(possible_values, open_gripper)
-
-  assert_op = tf.Assert(tf.reduce_any(eq), [open_gripper])
-
-  with tf.control_dependencies([assert_op]):
-    model_action['gripper_closedness_action'] = tf.cond(
-        # for open_gripper in bridge dataset,
-        # 0 is fully closed and 1 is fully open
-        open_gripper,
-        # for Fractal data,
-        # gripper_closedness_action = -1 means opening the gripper and
-        # gripper_closedness_action = 1 means closing the gripper.
-        lambda: tf.constant([-1.0], dtype=tf.float32),
-        lambda: tf.constant([1.0], dtype=tf.float32),
-    )
-
-  model_action = rescale_action(model_action)
-
-  return model_action
 
 
 # bufferless VideoCapture
@@ -138,14 +48,14 @@ class XarmIK:
         self.close = 10.0
         self.gripper_act(1)
 
-    def set_location(self, target_position, gripper_action=False):
+    def set_location(self, target_position, gripper_action=False, duration=1000):
         if gripper_action:
             self.gripper_act(gripper_action)
         target_angles = self.my_chain.inverse_kinematics(target_position)
         target_angles_degrees = np.array([math.degrees(radian) for radian in target_angles])
         target_angles_degrees =  np.flip(target_angles_degrees[1:-1])
         desired_pos = [[x+3, float(target_angles_degrees[x])] for x in range(len(target_angles_degrees))]
-        self.arm.setPosition(desired_pos, duration=1000, wait=True)
+        self.arm.setPosition(desired_pos, duration=duration, wait=True)
         return True
         
     def get_location(self):
@@ -183,7 +93,7 @@ class Controller:
         self.location_point = location_point
         self.up_point = [-0.1182, -0.0001, 0.1917]
         self.up_right_point = [-0.06, -0.17, 0.1911]
-        self.down_point = [-0.06, -0.17, 0.05]
+        self.down_point = [-0.06, -0.24, 0.05]
         self.sequence = [self.location_point, self.up_point, self.up_right_point, self.down_point, self.up_right_point, self.up_point]
         self.gripper = [-1, -1, -1, -1, 1, 1]
         self.chasing_idx = 0
@@ -202,8 +112,78 @@ class Controller:
             act = list((direction_v/np.linalg.norm(direction_v)) * self.step_size)
         dist_prev = np.linalg.norm(current_location-self.sequence[self.chasing_idx-1]) if self.chasing_idx > 0 else 1000
         
-        # print('dist: ', dist)
-        # print('dist_prev: ', dist_prev) 
-        if min(dist_prev, dist) <= 0.01:
+        print('dist: ', dist)
+        print('dist_prev: ', dist_prev) 
+        if min(dist_prev, dist) <= 0.028:
             self.gripper_open = self.gripper[self.chasing_idx]
         return (act, self.gripper_open)
+    
+
+class ParabolicController:
+    def __init__(self, current_location, p1, p2, h=0.2, t=0.1):
+        # 1 ღიაა
+        # -1 დახურულია
+
+        self.current_location = current_location
+        self.p1 = p1
+        self.p2 = p2
+        assert p1[-1]==p2[-1]
+        self.Z_coordinate = p1[-1]
+        self.h = h
+        self.t = t
+        self.sequence, self.gripper = self.get_sequence()
+        print(self.sequence)
+        self.chasing_idx = 0
+        self.gripper_open = 1
+
+    def get_sequence(self):
+        stop_height = 0.1
+        sequence = []
+        gripper = []
+        for x in np.arange(0, 1, self.t):
+            sequence.append(self.cl_pt_linear(self.current_location, self.p1, x))
+            if x + self.t * 1.5 >= 1:
+                break
+            gripper.append(1)
+        
+        for x in np.arange(0, 1+self.t, self.t):
+            sequence.append(self.cl_pt(self.p1, self.p2, x))
+            if x >= 1:
+                gripper.append(1)
+            else:
+                gripper.append(-1)
+
+        root = (1 + math.sqrt(1-stop_height/self.h)) / 2
+        for x in np.arange(self.t, 1+self.t, self.t):
+            sequence.append(self.cl_pt(self.p2, self.p1, x))
+            gripper.append(1)
+            if x >= root:
+                break
+        return sequence, gripper
+    
+    def cl_pt_linear(self, p1, p2, t):
+        x_t = p1[0] + (p2[0]-p1[0])*t
+        y_t = p1[1] + (p2[1]-p1[1])*t
+        z_t = p1[2] + (p2[2]-p1[2])*t
+        return [x_t, y_t, z_t]
+
+    def cl_pt(self, p1, p2, t):
+        x_t = p1[0] + (p2[0]-p1[0])*t
+        y_t = p1[1] + (p2[1]-p1[1])*t
+        z_t = 4*self.h*t*(1-t) + self.Z_coordinate 
+        z1 = p1[-1]
+        z2 = p2[-1]
+
+        z_t = (-4 * self.h + 2 * z1 + 2 * z2)*t*t + (4 * self.h - 3 * z1 - z2)*t +z1
+        return [x_t, y_t, z_t]
+
+    def act(self, current_location):
+        self.chasing_idx+=1
+        if len(self.sequence) <= self.chasing_idx:
+            return False, False
+        print('idx', self.chasing_idx, self.sequence[self.chasing_idx])
+        act = np.array(self.sequence[self.chasing_idx]) - np.array(current_location)
+        gripper = self.gripper[self.chasing_idx]
+        return (list(act), gripper)
+
+
