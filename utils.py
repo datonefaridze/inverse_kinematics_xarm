@@ -49,13 +49,13 @@ class XarmIK:
         self.gripper_act(1)
 
     def set_location(self, target_position, gripper_action=False, duration=1000):
-        if gripper_action:
-            self.gripper_act(gripper_action)
         target_angles = self.my_chain.inverse_kinematics(target_position)
         target_angles_degrees = np.array([math.degrees(radian) for radian in target_angles])
         target_angles_degrees =  np.flip(target_angles_degrees[1:-1])
         desired_pos = [[x+3, float(target_angles_degrees[x])] for x in range(len(target_angles_degrees))]
         self.arm.setPosition(desired_pos, duration=duration, wait=True)
+        if gripper_action:
+            self.gripper_act(gripper_action)
         return True
         
     def get_location(self):
@@ -141,10 +141,10 @@ class ParabolicController:
         sequence = []
         gripper = []
         for x in np.arange(0, 1, self.t):
-            sequence.append(self.cl_pt_linear(self.current_location, self.p1, x))
+            sequence.append(self.cl_pt(self.current_location, self.p1, x, h=self.h/2))
+            gripper.append(1)
             if x + self.t * 1.5 >= 1:
                 break
-            gripper.append(1)
         
         for x in np.arange(0, 1+self.t, self.t):
             sequence.append(self.cl_pt(self.p1, self.p2, x))
@@ -161,27 +161,23 @@ class ParabolicController:
                 break
         return sequence, gripper
     
-    def cl_pt_linear(self, p1, p2, t):
-        x_t = p1[0] + (p2[0]-p1[0])*t
-        y_t = p1[1] + (p2[1]-p1[1])*t
-        z_t = p1[2] + (p2[2]-p1[2])*t
-        return [x_t, y_t, z_t]
 
-    def cl_pt(self, p1, p2, t):
+    def cl_pt(self, p1, p2, t, h=None):
+        if not h:
+            h = self.h
         x_t = p1[0] + (p2[0]-p1[0])*t
         y_t = p1[1] + (p2[1]-p1[1])*t
-        z_t = 4*self.h*t*(1-t) + self.Z_coordinate 
+        # z_t = 4*self.h*t*(1-t) + self.Z_coordinate 
         z1 = p1[-1]
         z2 = p2[-1]
 
-        z_t = (-4 * self.h + 2 * z1 + 2 * z2)*t*t + (4 * self.h - 3 * z1 - z2)*t +z1
+        z_t = (-4 * h + 2 * z1 + 2 * z2)*t*t + (4 * h - 3 * z1 - z2)*t +z1
         return [x_t, y_t, z_t]
 
     def act(self, current_location):
         self.chasing_idx+=1
         if len(self.sequence) <= self.chasing_idx:
             return False, False
-        print('idx', self.chasing_idx, self.sequence[self.chasing_idx])
         act = np.array(self.sequence[self.chasing_idx]) - np.array(current_location)
         gripper = self.gripper[self.chasing_idx]
         return (list(act), gripper)
