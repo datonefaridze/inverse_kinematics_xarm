@@ -127,7 +127,6 @@ class ParabolicController:
         self.current_location = current_location
         self.p1 = p1
         self.p2 = p2
-        assert p1[-1]==p2[-1]
         self.Z_coordinate = p1[-1]
         self.h = h
         self.t = t
@@ -161,6 +160,14 @@ class ParabolicController:
                 break
         return sequence, gripper
     
+    def cl_pt_linear(self, p1, p2, t, h=None):
+        if not h:
+            h = self.h
+        x_t = p1[0] + (p2[0]-p1[0])*t
+        y_t = p1[1] + (p2[1]-p1[1])*t
+        z_t = p1[2] + (p2[2]-p1[2])*t
+        return [x_t, y_t, z_t]
+
 
     def cl_pt(self, p1, p2, t, h=None):
         if not h:

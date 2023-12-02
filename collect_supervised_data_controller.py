@@ -29,18 +29,10 @@ xarm_ik = XarmIK(arm, 'xarm.URDF')
 cap = VideoCapture(2)
 
 
-
-# controller = Controller([-0.13, 0.08, 0.03]) 
-
-
-#x 0.05 -0.2
-#y -0.1 0.1
-#z 0.1 0.25
-
 in_x = random.uniform(-0.2, 0.05)
 in_y = random.uniform(-0.1, 0.1)
 in_z = random.uniform(0.1, 0.25)
-controller = ParabolicController([in_x, in_y, in_z], [-0.13, 0.08, 0.04], [-0.13, -0.15, 0.04])
+controller = ParabolicController([in_x, in_y, in_z], [-0.1324, 0.0524, 0.04], [-0.1342, -0.1643, 0.04])
 print(in_x, in_y, in_z)
 xarm_ik.set_location([in_x, in_y, in_z], duration=3000)
 
@@ -83,12 +75,6 @@ if len(states) < des_num:
     frames = frames + (des_num-len(frames)) * [frames[-1]]
     actions = actions + (des_num-len(actions)) * [[0., 0., 0., 1.]]
 
-# for i in range(1, len(states)):
-#     action_3d = list(np.array(states[i][:3]) - np.array(states[i-1][:3]))
-#     gripper = states[i][-1]
-#     final_action = action_3d + [gripper]
-#     actions.append(final_action)
-
 
 if yn == 'y':
     print('saving...')
@@ -96,6 +82,5 @@ if yn == 'y':
     np.save(f'{dataset_dir}/actions_{filename}.npy', actions)
     np.save(f'{dataset_dir}/frames_{filename}.npy', frames)
     np.save(f'{dataset_dir}/states_{filename}.npy', states)
-
+print("Daaato")
 cap.stop()  # Stop the video capture thread
-cv2.destroyAllWindows()
