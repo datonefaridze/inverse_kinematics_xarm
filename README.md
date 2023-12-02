@@ -1,9 +1,30 @@
-# inverse_kinematics_xarm
+# 🤖 inverse_kinematics_xarm
 
-The project is intended as research project (therefore it needs refactoring, i will refactor it if somebody takes interest in it).
-In this project I demonstrate Xarm's ability to pick up an object. This problem is generally hard, because classical **RL** algorithms fail, because the sequence of steps that robot has to take before it reaches the goal is very large,
-therefore they don't get reward in a short term, that's why they fail. In this project I used imitation learning which basically mimics the expert policy (like babies mimic adults and learn). </br>
-Before this project I used lot of approaches (I worked on it throught a year) but all of them failed (I believe that was because of lack of data, even though I had in total 2 hours of training samples, i believe it should have been at least 9).
-</br>
-At the end I tried [eai-vc](https://github.com/facebookresearch/eai-vc) (Meta project). They basically trained backbone network  on large set of tasks, their intention was to develop general control network which could be fine tunned on specific task (like models on imagenet).
-I took their model, used it as feature extractor and then fine tunned with behaviour clonning on my specific dataset.
+🔍 **Project Overview**
+
+This is research project aimed at overcoming a challenging problem in robotics—teaching an Xarm to pick up objects. Traditional Reinforcement Learning (RL) methods often fail due to the extensive sequence of actions required, which delays rewards and hinders learning.
+
+👶 **Imitation Learning**
+
+This project uses imitation learning algorithm to learn the expert policy (I created controller which helped me to collect the data). The process is similar to babies learning from adults. 
+
+💡 **Previous Attempts**
+
+Prior to this breakthrough, I explored numerous strategies throught a year (**Yeah I have devouted countless hours to this**), none of worked, because of insufficient data (at least that's my prediction). My hypothesis was that a minimum of 9 hours was essential, whereas only 2 hours were available.
+
+🌐 **Integration with [eai-vc](https://github.com/facebookresearch/eai-vc)**
+
+In a quest for a solution, I integrated the [eai-vc](https://github.com/facebookresearch/eai-vc) model, developed by Meta's research team. This model, trained on a vast array of tasks, aims to create a versatile control network adaptable to specific tasks, similar to models trained on ImageNet. </br>
+By using it as a feature extractor, I was able to fine-tune it with behavior cloning on a specialized dataset, tailoring it to meet the unique demands of the Xarm project.
+
+✨ **Interested in Contributing?**
+
+The project is open for refactoring and further development. Your contributions and interest can help take this research to the next level!
+
+---
+
+Feel free to reach out if you're interested in collaborating or have any suggestions!
+
+[![GitHub stars](https://img.shields.io/github/stars/datonefaridze/inverse_kinematics_xarm.svg?style=social&label=Star&maxAge=2592000)](https://GitHub.com/datonefaridze/inverse_kinematics_xarm/stargazers/)
+[![GitHub forks](https://img.shields.io/github/forks/datonefaridze/inverse_kinematics_xarm.svg?style=social&label=Fork&maxAge=2592000)](https://GitHub.com/datonefaridze/inverse_kinematics_xarm/network/)
+[![GitHub watchers](https://img.shields.io/github/watchers/datonefaridze/inverse_kinematics_xarm.svg?style=social&label=Watch&maxAge=2592000)](https://GitHub.com/datonefaridze/inverse_kinematics_xarm/watchers/)
