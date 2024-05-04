@@ -1,5 +1,11 @@
 # 🤖 inverse_kinematics_xarm
 
+
+youtube link: https://www.youtube.com/watch?v=TReSMKwKTtM&ab_channel=datonefaridze
+![image](https://github.com/datonefaridze/inverse_kinematics_xarm/assets/52849166/77c862dd-84a9-4d7f-b65c-7154035cb60d)
+
+
+
 🔍 **Project Overview**
 
 This is research project aimed at overcoming a challenging problem in robotics—teaching an Xarm to pick up objects. Traditional Reinforcement Learning (RL) methods often fail due to the extensive sequence of actions required, which delays rewards and hinders learning.
